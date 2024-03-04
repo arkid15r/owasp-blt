@@ -789,23 +789,23 @@ class IssueCreate(IssueBaseCreate, CreateView):
                 print("Web site exists")
 
             # skip domain validation check if bugreport server down
-            elif request.POST["label"] == "7":
-                pass
-
-            else:
-                full_url = "https://" + url
+            elif request.POST["label"] != "7":
+                domain_exists = False
+                full_url = f"https://{url}"
                 if is_valid_https_url(full_url):
                     safe_url = rebuild_safe_url(full_url)
                     response = requests.get(safe_url, timeout=5)
-                    if response.status_code != 200:
-                        messages.error(request, "Domain does not exist")
-
-                captcha_form = CaptchaForm(request.POST)
-                return render(
-                    self.request,
-                    "report.html",
-                    {"form": self.get_form(), "captcha_form": captcha_form},
-                )
+                    if response.status_code == 200:
+                        domain_exists = True
+                
+                if not domain_exists:
+                    messages.error(request, "Domain does not exist")
+                    captcha_form = CaptchaForm(request.POST)
+                    return render(
+                        self.request,
+                        "report.html",
+                        {"form": self.get_form(), "captcha_form": captcha_form},
+                    )
 
         return super().post(request, *args, **kwargs)
 

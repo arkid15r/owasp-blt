@@ -59,6 +59,7 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils.datastructures import MultiValueDictKeyError
 from django.utils.decorators import method_decorator
 from django.utils.timezone import now
 from django.views.decorators.csrf import csrf_exempt
@@ -101,7 +102,7 @@ WHITELISTED_IMAGE_TYPES = {
 def image_validator(img):
     try:
         filesize = img.file.size
-    except:
+    except AttributeError:
         filesize = img.size
     print(img)
     extension = img.name.split(".")[-1]
@@ -144,12 +145,12 @@ def rebuild_safe_url(url):
 def index(request, template="index.html"):
     try:
         domains = random.sample(Domain.objects.all(), 3)
-    except:
+    except ValueError:
         domains = None
     try:
         if not EmailAddress.objects.get(email=request.user.email).verified:
             messages.error(request, "Please verify your email address")
-    except:
+    except EmailAddress.DoesNotExist:
         pass
 
     latest_hunts_filter = request.GET.get("latest_hunts", None)
@@ -250,7 +251,7 @@ def newhome(request, template="new_home.html"):
     try:
         if not EmailAddress.objects.get(email=request.user.email).verified:
             messages.error(request, "Please verify your email address")
-    except:
+    except EmailAddress.DoesNotExist:
         pass
 
     bugs = Issue.objects.exclude(Q(is_hidden=True) & ~Q(user_id=request.user.id)).all()
@@ -467,7 +468,7 @@ def company_dashboard(request, template="index_company.html"):
             "previous_hunt": previous_hunt,
         }
         return render(request, template, context)
-    except:
+    except CompanyAdmin.DoesNotExist:
         return redirect("/")
 
 
@@ -572,13 +573,13 @@ class IssueBaseCreate(object):
         p = Points.objects.create(user=self.request.user, issue=obj, score=score)
 
     def process_issue(self, user, obj, created, domain, tokenauth=False, score=3):
-        p = Points.objects.create(user=user, issue=obj, score=score)
+        Points.objects.create(user=user, issue=obj, score=score)
         messages.success(self.request, "Bug added ! +" + str(score))
 
         if created:
             try:
                 email_to = get_email_from_domain(domain)
-            except:
+            except ValueError:
                 email_to = "support@" + domain.name
 
             domain.email = email_to
@@ -625,14 +626,14 @@ class IssueBaseCreate(object):
                             blt_url,
                         )
                     )
-            except Exception as e:
+            except tweepy.HTTPException as e:
                 print(e)
 
         else:
             email_to = domain.email
             try:
                 name = email_to.split("@")[0]
-            except:
+            except IndexError:
                 email_to = "support@" + domain.name
                 name = "support"
                 domain.email = email_to
@@ -710,62 +711,60 @@ class IssueCreate(IssueBaseCreate, CreateView):
     template_name = "report.html"
 
     def get_initial(self):
-        try:
-            json_data = json.loads(self.request.body)
-            if not self.request.GET._mutable:
-                self.request.POST._mutable = True
-            self.request.POST["url"] = json_data["url"]
-            self.request.POST["description"] = json_data["description"]
-            self.request.POST["markdown_description"] = json_data[
-                "markdown_description"
-            ]
-            self.request.POST["file"] = json_data["file"]
-            self.request.POST["label"] = json_data["label"]
-            self.request.POST["token"] = json_data["token"]
-            self.request.POST["type"] = json_data["type"]
+        json_data = json.loads(self.request.body)
+        if not self.request.GET._mutable:
+            self.request.POST._mutable = True
+        self.request.POST["url"] = json_data["url"]
+        self.request.POST["description"] = json_data["description"]
+        self.request.POST["markdown_description"] = json_data[
+            "markdown_description"
+        ]
+        self.request.POST["file"] = json_data["file"]
+        self.request.POST["label"] = json_data["label"]
+        self.request.POST["token"] = json_data["token"]
+        self.request.POST["type"] = json_data["type"]
 
-            if self.request.POST.get("file"):
-                if isinstance(self.request.POST.get("file"), six.string_types):
-                    import imghdr
+        if self.request.POST.get("file"):
+            if isinstance(self.request.POST.get("file"), six.string_types):
+                import imghdr
 
-                    # Check if the base64 string is in the "data:" format
-                    data = (
-                        "data:image/"
-                        + self.request.POST.get("type")
-                        + ";base64,"
-                        + self.request.POST.get("file")
-                    )
-                    data = data.replace(" ", "")
-                    data += "=" * ((4 - len(data) % 4) % 4)
-                    if "data:" in data and ";base64," in data:
-                        # Break out the header from the base64 content
-                        header, data = data.split(";base64,")
+                # Check if the base64 string is in the "data:" format
+                data = (
+                    "data:image/"
+                    + self.request.POST.get("type")
+                    + ";base64,"
+                    + self.request.POST.get("file")
+                )
+                data = data.replace(" ", "")
+                data += "=" * ((4 - len(data) % 4) % 4)
+                if "data:" in data and ";base64," in data:
+                    # Break out the header from the base64 content
+                    header, data = data.split(";base64,")
 
-                    # Try to decode the file. Return validation error if it fails.
-                    try:
-                        decoded_file = base64.b64decode(data)
-                    except TypeError:
-                        TypeError("invalid_image")
+                # Try to decode the file. Return validation error if it fails.
+                try:
+                    decoded_file = base64.b64decode(data)
+                except TypeError:
+                    raise TypeError("invalid_image")
 
-                    # Generate file name:
-                    file_name = str(uuid.uuid4())[
-                        :12
-                    ]  # 12 characters are more than enough.
-                    # Get the file name extension:
-                    extension = imghdr.what(file_name, decoded_file)
-                    extension = "jpg" if extension == "jpeg" else extension
-                    file_extension = extension
+                # Generate file name:
+                file_name = str(uuid.uuid4())[
+                    :12
+                ]  # 12 characters are more than enough.
+                # Get the file name extension:
+                extension = imghdr.what(file_name, decoded_file)
+                extension = "jpg" if extension == "jpeg" else extension
+                file_extension = extension
 
-                    complete_file_name = "%s.%s" % (
-                        file_name,
-                        file_extension,
-                    )
+                complete_file_name = "%s.%s" % (
+                    file_name,
+                    file_extension,
+                )
 
-                    self.request.FILES["screenshot"] = ContentFile(
-                        decoded_file, name=complete_file_name
-                    )
-        except:
-            tokenauth = False
+                self.request.FILES["screenshot"] = ContentFile(
+                    decoded_file, name=complete_file_name
+                )
+        
         initial = super(IssueCreate, self).get_initial()
         if self.request.POST.get("screenshot-hash"):
             initial["screenshot"] = (
@@ -783,30 +782,20 @@ class IssueCreate(IssueBaseCreate, CreateView):
 
         # disable domain search on testing
         if not settings.IS_TEST:
-            try:
-                if settings.DOMAIN_NAME in url:
-                    print("Web site exists")
+            if settings.DOMAIN_NAME in url:
+                print("Web site exists")
 
-                # skip domain validation check if bugreport server down
-                elif request.POST["label"] == "7":
-                    pass
+            # skip domain validation check if bugreport server down
+            elif request.POST["label"] == "7":
+                pass
 
-                else:
-                    full_url = "https://" + url
-                    if is_valid_https_url(full_url):
-                        safe_url = rebuild_safe_url(full_url)
-                        try:
-                            response = requests.get(safe_url, timeout=5)
-                            if response.status_code == 200:
-                                print("Web site exists")
-                            else:
-                                raise Exception
-                        except Exception:
-                            raise Exception
-                    else:
-                        raise Exception
-            except:
-                messages.error(request, "Domain does not exist")
+            else:
+                full_url = "https://" + url
+                if is_valid_https_url(full_url):
+                    safe_url = rebuild_safe_url(full_url)
+                    response = requests.get(safe_url, timeout=5)
+                    if response.status_code != 200:
+                        messages.error(request, "Domain does not exist")
 
                 captcha_form = CaptchaForm(request.POST)
                 return render(
@@ -1126,7 +1115,7 @@ class InviteCreate(TemplateView):
                     response = requests.get(safe_url, timeout=5)
                     if response.status_code == 200:
                         exists = "exists"
-            except:
+            except requests.exceptions.RequestException:
                 pass
         context = {
             "exists": exists,
@@ -1139,7 +1128,7 @@ class InviteCreate(TemplateView):
 def profile(request):
     try:
         return redirect("/profile/" + request.user.username)
-    except Exception:
+    except AttributeError:
         return redirect("/")
 
 
@@ -1332,7 +1321,7 @@ def delete_issue(request, id):
             if request.POST["token"] == token.key:
                 request.user = User.objects.get(id=token.user_id)
                 tokenauth = True
-    except:
+    except MultiValueDictKeyError:
         tokenauth = False
     issue = Issue.objects.get(id=id)
     if request.user.is_superuser or request.user == issue.user or tokenauth:
@@ -1355,7 +1344,7 @@ def remove_user_from_issue(request, id):
             if request.POST["token"] == token.key:
                 request.user = User.objects.get(id=token.user_id)
                 tokenauth = True
-    except:
+    except MultiValueDictKeyError:
         pass
 
     issue = Issue.objects.get(id=id)
@@ -1944,7 +1933,7 @@ class IssueView(DetailView):
     def get(self, request, *args, **kwargs):
         ipdetails = IP()
         try:
-            id = int(self.kwargs["slug"])
+            int(self.kwargs["slug"])
         except ValueError:
             return HttpResponseNotFound("Invalid ID: ID must be an integer")
 
@@ -1955,27 +1944,24 @@ class IssueView(DetailView):
         try:
             if self.request.user.is_authenticated:
                 try:
-                    objectget = IP.objects.get(
+                    IP.objects.get(
                         user=self.request.user, issuenumber=self.object.id
                     )
                     self.object.save()
-                except:
+                except IP.DoesNotExist:
                     ipdetails.save()
                     self.object.views = (self.object.views or 0) + 1
                     self.object.save()
             else:
                 try:
-                    objectget = IP.objects.get(
-                        address=get_client_ip(request), issuenumber=self.object.id
-                    )
+                    IP.objects.get(address=get_client_ip(request), issuenumber=self.object.id)
                     self.object.save()
-                except Exception as e:
-                    print(e)
+                except IP.DoesNotExist:
                     messages.error(self.request, "That issue was not found 2." + str(e))
                     ipdetails.save()
                     self.object.views = (self.object.views or 0) + 1
                     self.object.save()
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
             print(e)
             messages.error(self.request, "That issue was not found 1." + str(e))
             return redirect("/")
@@ -2077,7 +2063,7 @@ def get_email_from_domain(domain_name):
         path = url[: url.rfind("/") + 1] if "/" in parts.path else url
         try:
             response = requests.get(url)
-        except:
+        except requests.exceptions.RequestException:
             continue
         new_emails = set(
             re.findall(r"[a-z0-9\.\-+_]+@[a-z0-9\.\-+_]+\.[a-z]+", response.text, re.I)
@@ -2104,7 +2090,7 @@ def get_email_from_domain(domain_name):
             emails_out.add(email)
     try:
         return list(emails_out)[0]
-    except:
+    except IndexError:
         return False
 
 
@@ -2118,7 +2104,7 @@ class InboundParseWebhookView(View):
                 if event.get("event") == "click":
                     domain.clicks = int(domain.clicks or 0) + 1
                 domain.save()
-            except Exception:
+            except Domain.DoesNotExist:
                 pass
 
         return JsonResponse({"detail": "Inbound Sendgrid Webhook recieved"})
@@ -2133,7 +2119,7 @@ def UpdateIssue(request):
             if request.POST["token"] == token.key:
                 request.user = User.objects.get(id=token.user_id)
                 tokenauth = True
-    except:
+    except MultiValueDictKeyError:
         tokenauth = False
     if (
         request.method == "POST"
@@ -2208,7 +2194,7 @@ def assign_issue_to_user(request, user, **kwargs):
             del request.session["issue"]
             del request.session["domain"]
             del request.session["created"]
-        except Exception:
+        except KeyError:
             pass
         request.session.modified = True
 
@@ -2599,7 +2585,7 @@ class CreateHunt(TemplateView):
 
             context = {"domains": domain, "hunt_form": HuntForm()}
             return render(request, self.template_name, context)
-        except:
+        except CompanyAdmin.DoesNotExist:
             return HttpResponseRedirect("/")
 
     @method_decorator(login_required)
@@ -2675,15 +2661,15 @@ class CreateHunt(TemplateView):
                 wallet.withdraw(total_amount)
                 wallet.save()
                 try:
-                    is_published = request.POST["publish"]
+                    request.POST["publish"]
                     hunt.is_published = True
-                except:
+                except MultiValueDictKeyError:
                     hunt.is_published = False
                 hunt.save()
                 return HttpResponse("success")
             else:
                 return HttpResponse("failed")
-        except:
+        except CompanyAdmin.DoesNotExist:
             return HttpResponse("failed")
 
 
@@ -2778,7 +2764,7 @@ class DraftHunts(TemplateView):
                 )
             context = {"hunts": hunt}
             return render(request, self.template_name, context)
-        except:
+        except CompanyAdmin.DoesNotExist:
             return HttpResponseRedirect("/")
 
 
@@ -2806,7 +2792,7 @@ class UpcomingHunts(TemplateView):
                     new_hunt.append(hunt)
             context = {"hunts": new_hunt}
             return render(request, self.template_name, context)
-        except:
+        except CompanyAdmin.DoesNotExist:
             return HttpResponseRedirect("/")
 
 
@@ -2833,7 +2819,7 @@ class OngoingHunts(TemplateView):
                     new_hunt.append(hunt)
             context = {"hunts": new_hunt}
             return render(request, self.template_name, context)
-        except:
+        except CompanyAdmin.DoesNotExist:
             return HttpResponseRedirect("/")
 
 
@@ -2864,7 +2850,7 @@ class PreviousHunts(TemplateView):
                     pass
             context = {"hunts": new_hunt}
             return render(request, self.template_name, context)
-        except:
+        except CompanyAdmin.DoesNotExist:
             return HttpResponseRedirect("/")
 
     @method_decorator(login_required)
@@ -2904,7 +2890,7 @@ class CompanySettings(TemplateView):
                 "domain_list": domain_list,
             }
             return render(request, self.template_name, context)
-        except:
+        except CompanyAdmin.DoesNotExist:
             return HttpResponseRedirect("/")
 
     @method_decorator(login_required)
@@ -2976,21 +2962,18 @@ def add_role(request):
                     return HttpResponse("success")
                 else:
                     return HttpResponse("already admin of another domain")
-            except:
-                try:
-                    admin = CompanyAdmin()
-                    admin.user = user
-                    admin.role = 1
-                    admin.company = domain_admin.company
-                    admin.is_active = True
-                    admin.save()
-                    return HttpResponse("success")
-                except:
-                    return HttpResponse("failed")
+            except CompanyAdmin.DoesNotExist:
+                admin = CompanyAdmin()
+                admin.user = user
+                admin.role = 1
+                admin.company = domain_admin.company
+                admin.is_active = True
+                admin.save()
+                return HttpResponse("success")
         else:
             return HttpResponse("failed")
-    else:
-        return HttpResponse("failed")
+    
+    return HttpResponse("failed")
 
 
 @login_required(login_url="/accounts/login")
@@ -3008,7 +2991,7 @@ def add_or_update_company(request):
                     admin = CompanyAdmin.objects.get(user=user, company=company)
                     admin.user = User.objects.get(email=request.POST["admin"])
                     admin.save()
-                except:
+                except CompanyAdmin.DoesNotExist:
                     admin = CompanyAdmin()
                     admin.user = User.objects.get(email=request.POST["admin"])
                     admin.role = 0
@@ -3026,17 +3009,17 @@ def add_or_update_company(request):
                     company.is_active = True
                 else:
                     company.is_active = False
-            except:
+            except MultiValueDictKeyError:
                 company.is_active = False
             try:
                 company.subscription = Subscription.objects.get(
                     name=request.POST["subscription"]
                 )
-            except:
+            except (MultiValueDictKeyError, Subscription.DoesNotExist):
                 pass
             try:
                 company.logo = request.FILES["logo"]
-            except:
+            except MultiValueDictKeyError:
                 pass
             company.save()
             return HttpResponse("success")
@@ -3071,41 +3054,39 @@ def add_or_update_domain(request):
         company_admin = CompanyAdmin.objects.get(user=request.user)
         subscription = company_admin.company.subscription
         count_domain = Domain.objects.filter(company=company_admin.company).count()
+        
         try:
+            domain_pk = request.POST["id"]
+            domain = Domain.objects.get(pk=domain_pk)
+            domain.name = request.POST["name"]
+            domain.email = request.POST["email"]
+            domain.github = request.POST["github"]
             try:
-                domain_pk = request.POST["id"]
-                domain = Domain.objects.get(pk=domain_pk)
-                domain.name = request.POST["name"]
-                domain.email = request.POST["email"]
-                domain.github = request.POST["github"]
-                try:
-                    domain.logo = request.FILES["logo"]
-                except:
-                    pass
-                domain.save()
-                return HttpResponse("Domain Updated")
-            except:
-                if count_domain == subscription.number_of_domains:
-                    return HttpResponse("Domains Reached Limit")
+                domain.logo = request.FILES["logo"]
+            except MultiValueDictKeyError:
+                pass
+            domain.save()
+            return HttpResponse("Domain Updated")
+        except (Domain.DoesNotExist, MultiValueDictKeyError):
+            if count_domain == subscription.number_of_domains:
+                return HttpResponse("Domains Reached Limit")
+            else:
+                if company_admin.role == 0:
+                    domain = Domain()
+                    domain.name = request.POST["name"]
+                    domain.url = request.POST["url"]
+                    domain.email = request.POST["email"]
+                    domain.github = request.POST["github"]
+                    try:
+                        domain.logo = request.FILES["logo"]
+                    except MultiValueDictKeyError:
+                        pass
+                    domain.company = company_admin.company
+                    domain.save()
+                    return HttpResponse("Domain Created")
                 else:
-                    if company_admin.role == 0:
-                        domain = Domain()
-                        domain.name = request.POST["name"]
-                        domain.url = request.POST["url"]
-                        domain.email = request.POST["email"]
-                        domain.github = request.POST["github"]
-                        try:
-                            domain.logo = request.FILES["logo"]
-                        except:
-                            pass
-                        domain.company = company_admin.company
-                        domain.save()
-                        return HttpResponse("Domain Created")
-                    else:
-                        return HttpResponse("failed")
-        except:
-            return HttpResponse("failed")
-
+                    return HttpResponse("failed")
+    
 
 @login_required(login_url="/accounts/login")
 def company_dashboard_domain_detail(
@@ -3114,14 +3095,14 @@ def company_dashboard_domain_detail(
     user = request.user
     domain_admin = CompanyAdmin.objects.get(user=request.user)
     try:
-        if (Domain.objects.get(pk=pk)) == domain_admin.domain:
+        if Domain.objects.get(pk=pk) == domain_admin.domain:
             if not user.is_active:
                 return HttpResponseRedirect("/")
             domain = get_object_or_404(Domain, pk=pk)
             return render(request, template, {"domain": domain})
         else:
             return redirect("/")
-    except:
+    except Domain.DoesNotExist:
         return redirect("/")
 
 
@@ -3198,9 +3179,9 @@ def company_dashboard_hunt_edit(
         hunt.name = request.POST["name"]
         hunt.description = form.cleaned_data["content"]
         try:
-            is_published = request.POST["publish"]
+            request.POST["publish"]
             hunt.is_published = True
-        except:
+        except MultiValueDictKeyError:
             hunt.is_published = False
         hunt.save()
         return HttpResponse("success")
@@ -3346,9 +3327,9 @@ class JoinCompany(TemplateView):
     def post(self, request, *args, **kwargs):
         name = request.POST["company"]
         try:
-            company_exists = Company.objects.get(name=name)
+            Company.objects.get(name=name)
             return JsonResponse({"status": "There was some error"})
-        except:
+        except Company.DoesNotExist:
             pass
         url = request.POST["url"]
         email = request.POST["email"]
@@ -3512,7 +3493,7 @@ def submit_bug(request, pk, template="hunt_submittion.html"):
             issue.description = description
             try:
                 issue.screenshot = request.FILES["screenshot"]
-            except:
+            except MultiValueDictKeyError:
                 issue_list = Issue.objects.filter(user=request.user, hunt=hunt).exclude(
                     Q(is_hidden=True) & ~Q(user_id=request.user.id)
                 )
@@ -3567,7 +3548,7 @@ def company_hunt_results(request, pk, template="company_hunt_results.html"):
                 try:
                     if request.POST["checkAll"]:
                         issue.verified = True
-                except:
+                except MultiValueDictKeyError:
                     pass
                 issue.save()
         if request.POST["submit"] == "save":
@@ -3803,7 +3784,7 @@ class IssueView2(DetailView):
     def get(self, request, *args, **kwargs):
         ipdetails = IP()
         try:
-            id = int(self.kwargs["slug"])
+            int(self.kwargs["slug"])
         except ValueError:
             return HttpResponseNotFound("Invalid ID: ID must be an integer")
 
@@ -3814,21 +3795,21 @@ class IssueView2(DetailView):
         try:
             if self.request.user.is_authenticated:
                 try:
-                    objectget = IP.objects.get(
+                    IP.objects.get(
                         user=self.request.user, issuenumber=self.object.id
                     )
                     self.object.save()
-                except:
+                except IP.DoesNotExist:
                     ipdetails.save()
                     self.object.views = (self.object.views or 0) + 1
                     self.object.save()
             else:
                 try:
-                    objectget = IP.objects.get(
+                    IP.objects.get(
                         address=get_client_ip(request), issuenumber=self.object.id
                     )
                     self.object.save()
-                except:
+                except IP.DoesNotExist:
                     ipdetails.save()
                     self.object.views = (self.object.views or 0) + 1
                     self.object.save()

@@ -323,8 +323,8 @@ class LeaderboardApiViewSet(APIView):
                 return Response("Invalid month passed", status=400)
 
             try:
-                date = datetime(int(year), int(month), 1)
-            except:
+                datetime(int(year), int(month), 1)
+            except ValueError:
                 return Response("Invalid month or year passed", status=400)
 
         queryset = global_leaderboard.get_leaderboard(month, year, api=True)

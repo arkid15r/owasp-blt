@@ -434,15 +434,11 @@ class AddDomainView(View):
         try:
             if is_valid_https_url(domain_data["url"]):
                 safe_url = rebuild_safe_url(domain_data["url"])
-                try:
-                    response = requests.get(safe_url, timeout=5)
-                    if response.status_code != 200:
-                        raise Exception
-                except Exception:
+                response = requests.get(safe_url, timeout=5)
+                if response.status_code != 200:
                     messages.error(request, "Domain does not exist.")
                     return redirect("add_domain", company)
-        except Exception as e:
-            print(e)
+        except AttributeError:
             messages.error(request, "Domain does not exist.")
             return redirect("add_domain", company)
 

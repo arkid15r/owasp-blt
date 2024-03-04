@@ -122,7 +122,7 @@ class Domain(models.Model):
                 self.logo.save(self.name + ".jpg", image_content)
                 return self.logo.url
 
-        except:
+        except AttributeError:
             favicon_url = self.url + "/favicon.ico"
             return favicon_url
 
@@ -136,7 +136,7 @@ class Domain(models.Model):
             try:
                 color_thief = ColorThief(self.logo)
                 self.color = "#%02x%02x%02x" % color_thief.get_color(quality=1)
-            except:
+            except ValueError:
                 self.color = "#0000ff"
             self.save()
             return self.color
@@ -163,7 +163,7 @@ class Domain(models.Model):
 def validate_image(fieldfile_obj):
     try:
         filesize = fieldfile_obj.file.size
-    except:
+    except AttributeError:
         filesize = fieldfile_obj.size
     megabyte_limit = 3.0
     if filesize > megabyte_limit * 1024 * 1024:
@@ -310,7 +310,7 @@ class Issue(models.Model):
                 self.ocr = pytesseract.image_to_string(Image.open(self.screenshot))
                 self.save()
                 return self.ocr
-            except:
+            except ModuleNotFoundError:
                 return "OCR not installed"
 
     def remove_user(self):

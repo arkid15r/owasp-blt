@@ -55,6 +55,7 @@ from django.http import (
     HttpResponseNotFound,
     HttpResponseRedirect,
     JsonResponse,
+    RawPostDataException,
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -765,7 +766,7 @@ class IssueCreate(IssueBaseCreate, CreateView):
                     self.request.FILES["screenshot"] = ContentFile(
                         decoded_file, name=complete_file_name
                     )
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RawPostDataException):
             pass
         initial = super(IssueCreate, self).get_initial()
         if self.request.POST.get("screenshot-hash"):

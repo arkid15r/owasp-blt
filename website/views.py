@@ -634,7 +634,7 @@ class IssueBaseCreate(object):
             email_to = domain.email
             try:
                 name = email_to.split("@")[0]
-            except IndexError:
+            except AttributeError:
                 email_to = "support@" + domain.name
                 name = "support"
                 domain.email = email_to

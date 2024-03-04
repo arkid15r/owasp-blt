@@ -711,60 +711,62 @@ class IssueCreate(IssueBaseCreate, CreateView):
     template_name = "report.html"
 
     def get_initial(self):
-        json_data = json.loads(self.request.body)
-        if not self.request.GET._mutable:
-            self.request.POST._mutable = True
-        self.request.POST["url"] = json_data["url"]
-        self.request.POST["description"] = json_data["description"]
-        self.request.POST["markdown_description"] = json_data[
-            "markdown_description"
-        ]
-        self.request.POST["file"] = json_data["file"]
-        self.request.POST["label"] = json_data["label"]
-        self.request.POST["token"] = json_data["token"]
-        self.request.POST["type"] = json_data["type"]
+        try:
+            json_data = json.loads(self.request.body)
+            if not self.request.GET._mutable:
+                self.request.POST._mutable = True
+            self.request.POST["url"] = json_data["url"]
+            self.request.POST["description"] = json_data["description"]
+            self.request.POST["markdown_description"] = json_data[
+                "markdown_description"
+            ]
+            self.request.POST["file"] = json_data["file"]
+            self.request.POST["label"] = json_data["label"]
+            self.request.POST["token"] = json_data["token"]
+            self.request.POST["type"] = json_data["type"]
 
-        if self.request.POST.get("file"):
-            if isinstance(self.request.POST.get("file"), six.string_types):
-                import imghdr
+            if self.request.POST.get("file"):
+                if isinstance(self.request.POST.get("file"), six.string_types):
+                    import imghdr
 
-                # Check if the base64 string is in the "data:" format
-                data = (
-                    "data:image/"
-                    + self.request.POST.get("type")
-                    + ";base64,"
-                    + self.request.POST.get("file")
-                )
-                data = data.replace(" ", "")
-                data += "=" * ((4 - len(data) % 4) % 4)
-                if "data:" in data and ";base64," in data:
-                    # Break out the header from the base64 content
-                    header, data = data.split(";base64,")
+                    # Check if the base64 string is in the "data:" format
+                    data = (
+                        "data:image/"
+                        + self.request.POST.get("type")
+                        + ";base64,"
+                        + self.request.POST.get("file")
+                    )
+                    data = data.replace(" ", "")
+                    data += "=" * ((4 - len(data) % 4) % 4)
+                    if "data:" in data and ";base64," in data:
+                        # Break out the header from the base64 content
+                        header, data = data.split(";base64,")
 
-                # Try to decode the file. Return validation error if it fails.
-                try:
-                    decoded_file = base64.b64decode(data)
-                except TypeError:
-                    raise TypeError("invalid_image")
+                    # Try to decode the file. Return validation error if it fails.
+                    try:
+                        decoded_file = base64.b64decode(data)
+                    except TypeError:
+                        TypeError("invalid_image")
 
-                # Generate file name:
-                file_name = str(uuid.uuid4())[
-                    :12
-                ]  # 12 characters are more than enough.
-                # Get the file name extension:
-                extension = imghdr.what(file_name, decoded_file)
-                extension = "jpg" if extension == "jpeg" else extension
-                file_extension = extension
+                    # Generate file name:
+                    file_name = str(uuid.uuid4())[
+                        :12
+                    ]  # 12 characters are more than enough.
+                    # Get the file name extension:
+                    extension = imghdr.what(file_name, decoded_file)
+                    extension = "jpg" if extension == "jpeg" else extension
+                    file_extension = extension
 
-                complete_file_name = "%s.%s" % (
-                    file_name,
-                    file_extension,
-                )
+                    complete_file_name = "%s.%s" % (
+                        file_name,
+                        file_extension,
+                    )
 
-                self.request.FILES["screenshot"] = ContentFile(
-                    decoded_file, name=complete_file_name
-                )
-        
+                    self.request.FILES["screenshot"] = ContentFile(
+                        decoded_file, name=complete_file_name
+                    )
+        except json.JSONDecodeError:
+            pass
         initial = super(IssueCreate, self).get_initial()
         if self.request.POST.get("screenshot-hash"):
             initial["screenshot"] = (

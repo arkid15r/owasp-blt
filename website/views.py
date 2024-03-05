@@ -580,7 +580,7 @@ class IssueBaseCreate(object):
         if created:
             try:
                 email_to = get_email_from_domain(domain)
-            except ValueError:
+            except (TypeError, ValueError):
                 email_to = "support@" + domain.name
 
             domain.email = email_to
